@@ -6,10 +6,12 @@ import {
   MemoryHealthIndicator,
   MongooseHealthIndicator,
 } from '@nestjs/terminus';
+import { SkipThrottle } from '@nestjs/throttler';
 
 const HEAP_LIMIT_BYTES = 512 * 1024 * 1024;
 
 @ApiTags('Health')
+@SkipThrottle()
 @Controller('health')
 export class HealthController {
   constructor(
@@ -20,10 +22,10 @@ export class HealthController {
 
   @Get()
   @HealthCheck()
-  @ApiOperation({ summary: 'Readiness check (MongoDB + memory)' })
+  @ApiOperation({ summary: 'Readiness check (Database + memory)' })
   check() {
     return this.health.check([
-      () => this.mongoose.pingCheck('mongodb', { timeout: 1500 }),
+      () => this.mongoose.pingCheck('database', { timeout: 1500 }),
       () => this.memory.checkHeap('memory_heap', HEAP_LIMIT_BYTES),
     ]);
   }

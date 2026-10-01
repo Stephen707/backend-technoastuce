@@ -57,6 +57,40 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+> NestJS 12 ships ESM only. On Node < 24.9 Jest can't load it directly, so
+> `test/esm-to-cjs.transformer.cjs` compiles `@nestjs/*` to CommonJS for
+> tests only (see `jest.config.ts`).
+
+## Users API
+
+All routes are under `/api/v1/users` and require a Bearer access token.
+
+| Method & path | Who | Notes |
+| --- | --- | --- |
+| `GET /users/me` | any user | Own profile |
+| `PATCH /users/me` | any user | `firstName`, `lastName` only |
+| `POST /users/me/password` | any user | `currentPassword` + `newPassword`; signs out other sessions; 5 req/min |
+| `GET /users` | ADMIN, SUPER_ADMIN | `page`, `limit` (≤ 100), `search` (prefix on email/names), `role`, `isActive`, `sort` |
+| `GET /users/:id` | ADMIN, SUPER_ADMIN | |
+| `PATCH /users/:id` | ADMIN, SUPER_ADMIN | `firstName`, `lastName`, `role`, `isActive` |
+| `POST /users/:id/unlock` | ADMIN, SUPER_ADMIN | Clears a brute-force lockout |
+
+Rules:
+
+- Admin routes also require a session that passed TOTP (see `RolesGuard`).
+- An ADMIN only manages USER accounts and can't grant ADMIN/SUPER_ADMIN.
+  A SUPER_ADMIN manages every account except their own. Nobody can use admin
+  routes on themselves, so the last SUPER_ADMIN can't be demoted.
+- A role change or deactivation revokes every session of the target user.
+- Unknown body/query fields are rejected (400), and names are restricted to
+  letters, spaces, `'`, `.` and `-`.
+- Admin actions are logged by the `Audit` logger (`actor`, `target` and the
+  changed fields; names stay out of logs).
+
+`UsersModule` is the data layer (schema + `UsersService`) used by
+`AuthModule`; the HTTP routes live in `UserManagementModule`, which imports
+`AuthModule` for its guards. This avoids a circular module import.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

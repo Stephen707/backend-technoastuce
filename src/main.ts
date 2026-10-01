@@ -1,6 +1,7 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { resolveLogLevels } from './common/logger/log-levels';
@@ -10,12 +11,18 @@ import { setupSwagger, SWAGGER_PATH } from './config/swagger';
 export const API_PREFIX = 'api/v1';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     logger: resolveLogLevels(process.env.LOG_LEVEL),
   });
   const configService = app.get(ConfigService<Config, true>);
   const port = configService.get('port', { infer: true });
   const corsOrigin = configService.get('corsOrigin', { infer: true });
+
+  // Behind a reverse proxy, trust its X-Forwarded-For so req.ip (used by the
+  // rate limiter and stored on sessions) is the real client IP.
+  if (configService.get('trustProxy', { infer: true })) {
+    app.set('trust proxy', 1);
+  }
 
   app.setGlobalPrefix(API_PREFIX);
   app.use(helmet());

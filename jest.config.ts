@@ -15,8 +15,12 @@ const config: Config = {
   rootDir: '.',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.ts$': 'ts-jest',
+    // NestJS 12 ships ESM only, which Jest can't require() before Node 24.9:
+    // those packages are compiled to CommonJS for tests (see transformer).
+    '^.+\\.js$': '<rootDir>/test/esm-to-cjs.transformer.cjs',
   },
+  transformIgnorePatterns: ['node_modules[\\\\/](?!@nestjs[\\\\/])'],
   moduleNameMapper: pathsToModuleNameMapper(paths, { prefix: '<rootDir>/' }),
   collectCoverageFrom: [
     'src/**/*.(t|j)s',
