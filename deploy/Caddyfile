@@ -1,0 +1,13 @@
+# HTTPS certificates are obtained and renewed automatically (Let's Encrypt)
+# as soon as API_DOMAIN points to this server.
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	# The API accepts JSON bodies up to 512 kB (article content); this only
+	# rejects absurd bodies early.
+	request_body {
+		max_size 2MB
+	}
+
+	reverse_proxy api:5080
+}

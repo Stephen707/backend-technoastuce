@@ -3,6 +3,34 @@ import { z } from 'zod';
 // Durations like "900", "30s", "15m", "12h" or "7d".
 export const DURATION_REGEX = /^\d+[smhd]?$/;
 
+const isBareOrigin = (value: string) => {
+  try {
+    return new URL(value).origin === value;
+  } catch {
+    return false;
+  }
+};
+
+// "https://a.com, https://b.com" -> ['https://a.com', 'https://b.com'].
+// Each entry must be a bare origin (scheme + host + optional port).
+const ORIGIN_LIST = z
+  .string()
+  .transform((v) =>
+    v
+      .split(',')
+      .map((o) => o.trim().replace(/\/+$/, ''))
+      .filter(Boolean),
+  )
+  .pipe(
+    z
+      .array(
+        z.url({ protocol: /^https?$/ }).refine(isBareOrigin, {
+          message: 'Each CORS origin must be scheme://host[:port], no path',
+        }),
+      )
+      .min(1),
+  );
+
 export const envValidationSchema = z
   .object({
     PORT: z.coerce.number().int().min(0).max(65535).default(5080),
@@ -10,7 +38,7 @@ export const envValidationSchema = z
     JWT_SECRET: z.string().min(6),
     DB_NAME: z.string(),
     LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
-    CORS_ORIGIN: z.url().optional(),
+    CORS_ORIGIN: ORIGIN_LIST.optional(),
     JWT_EXPIRES_IN: z
       .string()
       .regex(DURATION_REGEX, 'Expected a duration like 900, 15m, 1h')
@@ -19,6 +47,11 @@ export const envValidationSchema = z
       .enum(['development', 'production', 'test'])
       .default('development'),
     TRUST_PROXY: z.stringbool().default(false),
+    // Defaults to enabled outside production (see superRefine below).
+    SWAGGER_ENABLED: z.stringbool().optional(),
+    // Public base URL of this API (used in links sent by email, e.g.
+    // one-click unsubscribe). Defaults to http://localhost:PORT.
+    API_PUBLIC_URL: z.url({ protocol: /^https?$/ }).optional(),
 
     // Auth
     APP_NAME: z.string().default('Technoastuce'),
@@ -39,13 +72,30 @@ export const envValidationSchema = z
     SMTP_USER: z.string().optional(),
     SMTP_PASS: z.string().optional(),
     MAIL_FROM: z.string().default('Technoastuce <no-reply@technoastuce.local>'),
+
+    // Cache. Without REDIS_URL an in-process cache is used (single instance).
+    REDIS_URL: z.url({ protocol: /^rediss?$/ }).optional(),
+    REDIS_KEY_PREFIX: z
+      .string()
+      .regex(/^[a-z0-9:_-]{1,32}$/i)
+      .default('technoastuce:'),
+    CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86_400).default(60),
   })
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'production' && env.JWT_SECRET.length < 32) {
+    if (env.NODE_ENV !== 'production') return;
+    if (env.JWT_SECRET.length < 32) {
       ctx.addIssue({
         code: 'custom',
         path: ['JWT_SECRET'],
         message: 'Must be at least 32 characters in production',
+      });
+    }
+    // Credentialed CORS must never reflect arbitrary origins in production.
+    if (!env.CORS_ORIGIN) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['CORS_ORIGIN'],
+        message: 'Required in production (comma-separated list of origins)',
       });
     }
   });

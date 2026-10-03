@@ -19,30 +19,49 @@ export interface MailConfig {
   from: string;
 }
 
+export interface CacheConfig {
+  redisUrl?: string;
+  keyPrefix: string;
+  defaultTtlSeconds: number;
+}
+
 export interface Config {
   port: number;
+  nodeEnv: 'development' | 'production' | 'test';
   databaseUrl: string;
   dbName?: string;
   jwtSecret: string;
   logLevel: string;
-  corsOrigin?: string;
+  // Allowed CORS origins; undefined allows any origin (never in production).
+  corsOrigins?: string[];
   trustProxy: boolean;
+  swaggerEnabled: boolean;
+  apiPublicUrl: string;
   auth: AuthConfig;
   mail: MailConfig;
+  cache: CacheConfig;
 }
+
+const stripTrailingSlash = (url: string) => url.replace(/\/+$/, '');
 
 // Parse through the same zod schema so defaults/coercions match validation.
 export default (): Config => {
   const env = validateEnv(process.env);
+  const apiPublicUrl = stripTrailingSlash(
+    env.API_PUBLIC_URL ?? `http://localhost:${env.PORT}`,
+  );
 
   return {
     port: env.PORT,
+    nodeEnv: env.NODE_ENV,
     databaseUrl: env.MONGODB_URI,
     jwtSecret: env.JWT_SECRET,
     dbName: env.DB_NAME,
     logLevel: env.LOG_LEVEL,
-    corsOrigin: env.CORS_ORIGIN,
+    corsOrigins: env.CORS_ORIGIN,
     trustProxy: env.TRUST_PROXY,
+    swaggerEnabled: env.SWAGGER_ENABLED ?? env.NODE_ENV !== 'production',
+    apiPublicUrl,
     auth: {
       appName: env.APP_NAME,
       appWebUrl: env.APP_WEB_URL,
@@ -58,6 +77,11 @@ export default (): Config => {
       user: env.SMTP_USER,
       pass: env.SMTP_PASS,
       from: env.MAIL_FROM,
+    },
+    cache: {
+      redisUrl: env.REDIS_URL,
+      keyPrefix: env.REDIS_KEY_PREFIX,
+      defaultTtlSeconds: env.CACHE_TTL_SECONDS,
     },
   };
 };

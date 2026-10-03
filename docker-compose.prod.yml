@@ -1,0 +1,64 @@
+# Production stack for a single VPS: Caddy (HTTPS) -> API -> MongoDB.
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# Only Caddy publishes ports; the API, MongoDB and Redis stay on the private
+# Docker network.
+name: technoastuce
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env.production}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # TLS certificates: keep this volume
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    build: .
+    image: technoastuce-api
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      NODE_ENV: production
+      PORT: '5080'
+      TRUST_PROXY: 'true' # behind Caddy: real client IPs for rate limits
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?Set MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand("ping").ok']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Optional: only needed with several API instances.
+  #   docker compose -f docker-compose.prod.yml --profile redis up -d
+  # and set REDIS_URL=redis://redis:6379 in .env.production.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    profiles: ['redis']
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mongo_data:

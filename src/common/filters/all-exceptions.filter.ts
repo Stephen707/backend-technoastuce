@@ -9,6 +9,7 @@ import {
 import { HttpAdapterHost } from '@nestjs/core';
 import { Request } from 'express';
 import { Error as MongooseError } from 'mongoose';
+import { redactUrl } from '../utils/redact';
 
 export interface ErrorResponse {
   success: false;
@@ -33,6 +34,26 @@ function isDuplicateKeyError(err: unknown): err is MongoServerError {
   );
 }
 
+// Errors raised by Express middleware before Nest sees the request
+// (body-parser: malformed JSON -> 400, body too large -> 413, ...). They
+// carry an HTTP status and `expose: true` when their message is safe to show.
+interface ExposedHttpError {
+  status: number;
+  message: string;
+  expose: true;
+}
+
+function isExposedHttpError(err: unknown): err is ExposedHttpError {
+  if (typeof err !== 'object' || err === null) return false;
+  const { status, expose } = err as { status?: unknown; expose?: unknown };
+  return (
+    expose === true &&
+    typeof status === 'number' &&
+    status >= 400 &&
+    status < 500
+  );
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('ExceptionFilter');
@@ -51,7 +72,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode,
       error: HttpStatus[statusCode] ?? 'ERROR',
       message,
-      path: request.originalUrl ?? request.url,
+      path: redactUrl(request.originalUrl ?? request.url),
       method: request.method,
       timestamp: new Date().toISOString(),
     };
@@ -96,6 +117,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
         statusCode: HttpStatus.BAD_REQUEST,
         message: `Invalid value for ${exception.path}: ${String(exception.value)}`,
       };
+    }
+
+    if (isExposedHttpError(exception)) {
+      return { statusCode: exception.status, message: exception.message };
     }
 
     if (isDuplicateKeyError(exception)) {
